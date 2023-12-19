@@ -1,19 +1,24 @@
-variable "image" {
-  type = string
-  default = "354629173698.dkr.ecr.eu-central-1.amazonaws.com/sample-js:latest"
-}
-
 variable "message" {
-  type = string
+  type    = string
   default = "Hello world!"
 }
 
-variable "execution_role_arn" {
-  type = string
-  default = "arn:aws:iam::354629173698:role/ecsTaskExecutionRole"
+variable "aws_account_id" {
+  type    = string
+  default = "354629173698"
 }
 
-variable "bucket_name" {
-  type = string
-  default = "andrzejewski-dev-sample-js"
+variable "aws_region" {
+  type    = string
+  default = "eu-central-1"
+}
+
+variable "image_name" {
+  type    = string
+  default = "sample-js"
+}
+
+variable "image_version" {
+  type    = string
+  default = "latest"
 }
