@@ -1,28 +1,25 @@
 terraform {
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
+      source = "hashicorp/aws"
       # version = "~> 4.16"
     }
   }
 
   backend "s3" {
-    bucket = var.bucket_name
-    key    = "sample-js-tf"
-    region = "eu-central-1"
   }
 
-  required_version = ">= 1.2.0"
+  required_version = ">= 1.0.0"
 }
 
 provider "aws" {
-  region = "eu-central-1"
+  region = var.aws_region
 }
 
 resource "aws_vpc" "sample_vpc" {
-  cidr_block = "10.0.0.0/16"
-  enable_dns_hostnames =  true
-  enable_dns_support = true
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
   tags = {
     Name = "sample-vpc"
@@ -30,9 +27,9 @@ resource "aws_vpc" "sample_vpc" {
 }
 
 resource "aws_subnet" "sample_subnet_public1" {
-  vpc_id     = aws_vpc.sample_vpc.id
-  cidr_block = "10.0.0.0/20"
-  availability_zone = "eu-central-1a"
+  vpc_id            = aws_vpc.sample_vpc.id
+  cidr_block        = "10.0.0.0/20"
+  availability_zone = "${var.aws_region}a"
 
   tags = {
     Name = "sample-subnet-public1"
@@ -40,9 +37,9 @@ resource "aws_subnet" "sample_subnet_public1" {
 }
 
 resource "aws_subnet" "sample_subnet_public2" {
-  vpc_id     = aws_vpc.sample_vpc.id
-  cidr_block = "10.0.16.0/20"
-  availability_zone = "eu-central-1b"
+  vpc_id            = aws_vpc.sample_vpc.id
+  cidr_block        = "10.0.16.0/20"
+  availability_zone = "${var.aws_region}b"
 
   tags = {
     Name = "sample-subnet-public2"
@@ -50,9 +47,9 @@ resource "aws_subnet" "sample_subnet_public2" {
 }
 
 resource "aws_subnet" "sample_subnet_private1" {
-  vpc_id     = aws_vpc.sample_vpc.id
-  cidr_block = "10.0.128.0/20"
-  availability_zone = "eu-central-1a"
+  vpc_id            = aws_vpc.sample_vpc.id
+  cidr_block        = "10.0.128.0/20"
+  availability_zone = "${var.aws_region}a"
   # map_public_ip_on_launch = true
 
   tags = {
@@ -61,9 +58,9 @@ resource "aws_subnet" "sample_subnet_private1" {
 }
 
 resource "aws_subnet" "sample_subnet_private2" {
-  vpc_id     = aws_vpc.sample_vpc.id
-  cidr_block = "10.0.144.0/20"
-  availability_zone = "eu-central-1b"
+  vpc_id            = aws_vpc.sample_vpc.id
+  cidr_block        = "10.0.144.0/20"
+  availability_zone = "${var.aws_region}b"
   # map_public_ip_on_launch = true
 
   tags = {
@@ -81,7 +78,7 @@ resource "aws_internet_gateway" "sample_ig" {
 
 resource "aws_eip" "sample_eip" {
   # instance = aws_instance.web.id
-  domain   = "vpc"
+  domain = "vpc"
 }
 
 resource "aws_nat_gateway" "sample_ng" {
@@ -106,7 +103,7 @@ resource "aws_route_table" "sample_route_table_public" {
 }
 resource "aws_route_table" "sample_route_table_private" {
   vpc_id = aws_vpc.sample_vpc.id
-  
+
   route {
     cidr_block = "0.0.0.0/0"
     # gateway_id = aws_internet_gateway.sample_ig.id
@@ -192,44 +189,44 @@ resource "aws_lb_target_group" "sample_ecs_tg" {
 # -----------------------------------------------------------------------------------
 
 resource "aws_ecs_cluster" "sample_ecs_cluster" {
- name = "sample-ecs-cluster"
+  name = "sample-ecs-cluster"
 }
 
 resource "aws_ecs_task_definition" "sample_ecs_task_definition" {
- family             = "sample-ecs-task-definition"
- network_mode       = "awsvpc"
- requires_compatibilities = ["FARGATE"]
+  family                   = "sample-ecs-task-definition"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
 
- execution_role_arn = var.execution_role_arn
- cpu                = 256
- memory             = 512
+  execution_role_arn = "arn:aws:iam::${var.aws_account_id}:role/ecsTaskExecutionRole"
+  cpu                = 256
+  memory             = 512
 
- runtime_platform {
-   operating_system_family = "LINUX"
-   cpu_architecture        = "ARM64"
- }
- container_definitions = jsonencode([
-   {
-     name      = "sample-js"
-     image     = var.image
-     cpu       = 256
-     memory    = 512
-     essential = true
-     environment = [
-      {
-        name = "MESSAGE",
-        value = var.message
-      }
-     ]
-     portMappings = [
-       {
-         containerPort = 80
-         hostPort      = 80
-         protocol      = "tcp"
-       }
-     ]
-   }
- ])
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+  container_definitions = jsonencode([
+    {
+      name      = var.image_name
+      image     = "${var.aws_account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.image_name}:${var.image_version}"
+      cpu       = 256
+      memory    = 512
+      essential = true
+      environment = [
+        {
+          name  = "MESSAGE",
+          value = var.message
+        }
+      ]
+      portMappings = [
+        {
+          containerPort = 80
+          hostPort      = 80
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
 }
 
 resource "aws_ecs_service" "sample_ecs_service" {
@@ -261,7 +258,7 @@ resource "aws_ecs_service" "sample_ecs_service" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.sample_ecs_tg.arn
-    container_name   = "sample-js"
+    container_name   = var.image_name
     container_port   = 80
   }
 

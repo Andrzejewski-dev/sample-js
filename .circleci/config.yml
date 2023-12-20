@@ -1,0 +1,62 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@4.1
+  aws-ecr: circleci/aws-ecr@9.0
+  terraform: circleci/terraform@3.2
+
+jobs:
+    build:
+        machine:
+            image: ubuntu-2204:2022.07.1
+        steps:
+            - aws-ecr/build_and_push_image:
+                auth:
+                    - aws-cli/setup:
+                        profile_name: default
+                repo: "sample-js"
+                tag: "${CIRCLE_SHA1}"
+                platform: linux/arm64
+    deploy:
+        executor: terraform/default
+        steps:
+            - checkout
+            - terraform/fmt:
+                path: ./infrastructure
+            - terraform/validate:
+                path: ./infrastructure
+            - terraform/init:
+                path: ./infrastructure
+                backend_config: "key=sample-js-tf,bucket=${AWS_BUCKET},region=${AWS_REGION}"
+            - terraform/plan:
+                path: ./infrastructure
+            - terraform/apply:
+                path: ./infrastructure
+                var: "aws_account_id=${AWS_ACCOUNT_ID},aws_region=${AWS_REGION},image_name=sample-js,image_version=${CIRCLE_SHA1}"
+    destroy:
+        executor: terraform/default
+        steps:
+            - checkout
+            - terraform/destroy:
+                path: ./infrastructure
+                backend_config: "key=sample-js-tf,bucket=${AWS_BUCKET},region=${AWS_REGION}"
+
+workflows:
+  build-and-deploy:
+    jobs:
+      - build-and-deploy-approval:
+          type: approval
+      - build:
+          requires:
+            - build-and-deploy-approval
+      - deploy:
+          requires:
+            - build
+      - destroy-approval:
+          type: approval
+          requires:
+            - deploy
+      - destroy:
+          requires:
+            - destroy-approval
+
