@@ -7,6 +7,9 @@ terraform {
   }
 
   backend "s3" {
+    bucket = "andrzejewski-dev-sample-js"
+    key    = "sample-js-tf"
+    region = "eu-central-1"
   }
 
   required_version = ">= 1.0.0"
@@ -16,139 +19,37 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_vpc" "sample_vpc" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
 
-  tags = {
-    Name = "sample-vpc"
-  }
-}
+  name = "sample-vpc"
+  cidr = "10.0.0.0/16"
 
-resource "aws_subnet" "sample_subnet_public1" {
-  vpc_id            = aws_vpc.sample_vpc.id
-  cidr_block        = "10.0.0.0/20"
-  availability_zone = "${var.aws_region}a"
+  azs             = ["${var.aws_region}a", "${var.aws_region}b"]
+  private_subnets = ["10.0.0.0/24", "10.0.16.0/24"]
+  public_subnets  = ["10.0.128.0/24", "10.0.144.0/24"]
 
-  tags = {
-    Name = "sample-subnet-public1"
-  }
-}
+  enable_nat_gateway = true
+  enable_vpn_gateway = true
 
-resource "aws_subnet" "sample_subnet_public2" {
-  vpc_id            = aws_vpc.sample_vpc.id
-  cidr_block        = "10.0.16.0/20"
-  availability_zone = "${var.aws_region}b"
-
-  tags = {
-    Name = "sample-subnet-public2"
-  }
-}
-
-resource "aws_subnet" "sample_subnet_private1" {
-  vpc_id            = aws_vpc.sample_vpc.id
-  cidr_block        = "10.0.128.0/20"
-  availability_zone = "${var.aws_region}a"
-  # map_public_ip_on_launch = true
-
-  tags = {
-    Name = "sample-subnet-private1"
-  }
-}
-
-resource "aws_subnet" "sample_subnet_private2" {
-  vpc_id            = aws_vpc.sample_vpc.id
-  cidr_block        = "10.0.144.0/20"
-  availability_zone = "${var.aws_region}b"
-  # map_public_ip_on_launch = true
-
-  tags = {
-    Name = "sample-subnet-private2"
-  }
-}
-
-resource "aws_internet_gateway" "sample_ig" {
-  vpc_id = aws_vpc.sample_vpc.id
-
-  tags = {
-    Name = "sample-ig"
-  }
-}
-
-resource "aws_eip" "sample_eip" {
-  # instance = aws_instance.web.id
-  domain = "vpc"
-}
-
-resource "aws_nat_gateway" "sample_ng" {
-  allocation_id = aws_eip.sample_eip.id
-  subnet_id     = aws_subnet.sample_subnet_public1.id
-
-  tags = {
-    Name = "sample-nat-gateway"
-  }
-
-  # To ensure proper ordering, it is recommended to add an explicit dependency
-  # on the Internet Gateway for the VPC.
-  depends_on = [aws_internet_gateway.sample_ig]
-}
-
-resource "aws_route_table" "sample_route_table_public" {
-  vpc_id = aws_vpc.sample_vpc.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.sample_ig.id
-  }
-}
-resource "aws_route_table" "sample_route_table_private" {
-  vpc_id = aws_vpc.sample_vpc.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    # gateway_id = aws_internet_gateway.sample_ig.id
-    nat_gateway_id = aws_nat_gateway.sample_ng.id
-  }
-}
-
-resource "aws_route_table_association" "sample_subnet_route_public1" {
-  subnet_id      = aws_subnet.sample_subnet_public1.id
-  route_table_id = aws_route_table.sample_route_table_public.id
-}
-
-resource "aws_route_table_association" "sample_subnet_route_public2" {
-  subnet_id      = aws_subnet.sample_subnet_public2.id
-  route_table_id = aws_route_table.sample_route_table_public.id
-}
-resource "aws_route_table_association" "sample_subnet_route_private1" {
-  subnet_id      = aws_subnet.sample_subnet_private1.id
-  route_table_id = aws_route_table.sample_route_table_private.id
-}
-
-resource "aws_route_table_association" "sample_subnet_route_private2" {
-  subnet_id      = aws_subnet.sample_subnet_private2.id
-  route_table_id = aws_route_table.sample_route_table_private.id
-}
-
-resource "aws_security_group" "sample_security_group" {
-  name   = "sample-security-group"
-  vpc_id = aws_vpc.sample_vpc.id
-
-  ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = -1
-    self        = "false"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "any"
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  default_security_group_ingress = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = -1
+      self        = "false"
+      cidr_blocks = "0.0.0.0/0"
+      description = "any"
+    }
+  ]
+  default_security_group_egress = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      cidr_blocks = "0.0.0.0/0"
+    }
+  ]
 }
 
 # -----------------------------------------------------------------------------------
@@ -156,11 +57,23 @@ resource "aws_lb" "sample_ecs_alb" {
   name               = "sample-ecs-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.sample_security_group.id]
-  subnets            = [aws_subnet.sample_subnet_public1.id, aws_subnet.sample_subnet_public2.id]
+  security_groups    = [module.vpc.default_security_group_id]
+  subnets            = module.vpc.public_subnets
 
   tags = {
     Name = "sample-ecs-alb"
+  }
+}
+
+resource "aws_lb_target_group" "sample_ecs_tg" {
+  name        = "sample-ecs-target-group"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = module.vpc.vpc_id
+
+  health_check {
+    path = "/"
   }
 }
 
@@ -172,18 +85,6 @@ resource "aws_lb_listener" "ecs_alb_listener" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.sample_ecs_tg.arn
-  }
-}
-
-resource "aws_lb_target_group" "sample_ecs_tg" {
-  name        = "sample-ecs-target-group"
-  port        = 80
-  protocol    = "HTTP"
-  target_type = "ip"
-  vpc_id      = aws_vpc.sample_vpc.id
-
-  health_check {
-    path = "/"
   }
 }
 # -----------------------------------------------------------------------------------
@@ -237,8 +138,8 @@ resource "aws_ecs_service" "sample_ecs_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [aws_subnet.sample_subnet_private1.id, aws_subnet.sample_subnet_private2.id]
-    security_groups = [aws_security_group.sample_security_group.id]
+    subnets         = module.vpc.private_subnets
+    security_groups = [module.vpc.default_security_group_id]
     # assign_public_ip = true
   }
 
